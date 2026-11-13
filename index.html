@@ -63,7 +63,7 @@ img.prev{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 </style>
 </head>
 <body>
-<header><h1>🏋️ 教練學員管理</h1><div style="display:flex;align-items:center;gap:10px;text-align:right"><div><small id="mode"></small><br><small id="ghStat"></small></div><button id="ghBtn" class="btn sm" style="display:none;background:#fff;color:#0f766e">備份</button></div></header>
+<header><h1>🏋️ 教練學員管理</h1><div style="display:flex;align-items:center;gap:10px;text-align:right"><div><small id="mode"></small><br></div><button id="skBtn" class="btn sm" style="display:none;background:#fff;color:#0f766e">連線</button></div></header>
 <main id="app"></main>
 <nav id="nav">
   <button data-act="nav" data-v="members"><b>👥</b>學員</button>
@@ -100,16 +100,31 @@ async function save(col,obj){
     try{await dbh.collection(col).doc(obj.id).set(obj);return true}
     catch(e){toast('儲存失敗：'+(e.code==='invalid_argument'?'此帳號沒有編輯權限':(e.message||e.code)));return false}
   }
+  const prev=data[col].slice();
   const i=data[col].findIndex(x=>x.id===obj.id);
   if(i>=0)data[col][i]=obj;else data[col].push(obj);
-  local.put(col,data[col]);render();scheduleSync();return true;
+  if(mode==='sheet'){
+    render();pending++;
+    try{await sheetApi({action:'save',col,row:obj});return true}
+    catch(e){data[col]=prev;render();toast('儲存失敗：'+(e.message||e));return false}
+    finally{pending--}
+  }
+  local.put(col,data[col]);render();return true;
 }
 async function remove(col,id){
   if(dbh){
     try{await dbh.collection(col).doc(id).delete();return true}
     catch(e){toast('刪除失敗：'+(e.message||e.code));return false}
   }
-  data[col]=data[col].filter(x=>x.id!==id);local.put(col,data[col]);render();scheduleSync();return true;
+  const prev=data[col].slice();
+  data[col]=data[col].filter(x=>x.id!==id);
+  if(mode==='sheet'){
+    render();pending++;
+    try{await sheetApi({action:'delete',col,id});return true}
+    catch(e){data[col]=prev;render();toast('刪除失敗：'+(e.message||e));return false}
+    finally{pending--}
+  }
+  local.put(col,data[col]);render();return true;
 }
 async function init(){
   try{
@@ -127,12 +142,16 @@ async function init(){
         render();
       },err=>{toast('資料讀取失敗：'+err.code);state.loaded=true;render()});
     });
+  }else if(sheetCfg()){
+    mode='sheet';
+    const t=setTimeout(()=>{if(!state.loaded){state.slow=true;render()}},10000);
+    await loadSheet(true);clearTimeout(t);
   }else{
     COLS.forEach(c=>data[c]=local.get(c));state.loaded=true;
   }
-  $('#mode').textContent=mode==='cloud'?'☁️ 雲端同步':'💾 僅存此瀏覽器';
+  $('#mode').textContent=({cloud:'☁️ 雲端同步',sheet:'📊 Google 試算表',local:'💾 僅存此瀏覽器'})[mode];
+  if(!dbh){$('#skBtn').style.display='';$('#skBtn').onclick=skSettings}
   render();
-  if(mode==='local')ghInit();
 }
 
 /* ---------- 小工具 ---------- */
@@ -205,7 +224,7 @@ function viewMembers(){
   const list=data.members.filter(m=>!q||[m.name,m.phone,m.coach,m.plan].some(x=>String(x||'').toLowerCase().includes(q))).sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
   const low=data.members.filter(m=>m.total&&remain(m)<=3).length;
   const todayCk=data.checkins.filter(c=>c.date===todayStr()).length;
-  return `<div class="stats"><div class="stat"><b>${data.members.length}</b><span>學員數</span></div><div class="stat"><b>${todayCk}</b><span>今日簽到</span></div><div class="stat"><b>${low}</b><span>堂數 ≤ 3</span></div></div>
+  return `${localNote()}<div class="stats"><div class="stat"><b>${data.members.length}</b><span>學員數</span></div><div class="stat"><b>${todayCk}</b><span>今日簽到</span></div><div class="stat"><b>${low}</b><span>堂數 ≤ 3</span></div></div>
   <div class="bar"><input id="q" placeholder="搜尋姓名、電話、教練…" value="${esc(state.q)}"><button class="btn" data-act="addMember">＋ 新增學員</button></div>
   ${list.length?list.map(m=>`<div class="card click" data-act="openMember" data-id="${m.id}"><div class="row"><div><div class="name">${esc(m.name)}</div><div class="sub">${esc(m.phone||'未填電話')}${m.coach?' ・ 教練 '+esc(m.coach):''}</div></div>${remainBadge(m)}</div></div>`).join(''):`<div class="empty">${data.members.length?'找不到符合的學員':'還沒有學員，按右上「新增學員」開始建立'}</div>`}`;
 }
@@ -282,23 +301,24 @@ function addContract(memberId){
   const fields=[
     {k:'memberId',l:'學員',t:'select',req:1,opts:data.members.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant')).map(m=>[m.id,m.name])},
     {k:'title',l:'合約名稱',req:1,ph:'例：一對一 20 堂合約'},{k:'start',l:'合約起日',t:'date',def:todayStr()},{k:'end',l:'合約到期日',t:'date'},
-    {k:'file',l:'合約檔案（PDF 或照片，20MB 內）',t:'file',req:1,acc:'application/pdf,image/*'},{k:'note',l:'備註',t:'textarea'}
+    {k:'file',l:`合約檔案（PDF 或照片，${mode==='sheet'?10:20}MB 內）`,t:'file',req:1,acc:'application/pdf,image/*'},{k:'note',l:'備註',t:'textarea'}
   ];
   formModal('上傳合約',fields,{memberId},async o=>{
     const f=o.file;if(!f){toast('請選擇檔案');return false}
-    if(f.size>20*1048576){toast('檔案超過 20MB');return false}
+    const LIM=mode==='sheet'?10:20;if(f.size>LIM*1048576){toast('檔案超過 '+LIM+'MB');return false}
     const id=uid();let meta={};
     try{
-      if(assetsh){const r=await assetsh.upload(f);meta={storage:'assets',assetId:r.id,url:r.url}}
+      if(mode==='sheet'){toast('上傳中…');const up=await sheetApi({action:'upload',id,name:f.name,type:f.type||'application/octet-stream',b64:b64buf(new Uint8Array(await f.arrayBuffer()))});meta={storage:'drive',fileId:up.fileId,url:up.url}}
+      else if(assetsh){const r=await assetsh.upload(f);meta={storage:'assets',assetId:r.id,url:r.url}}
       else{await idbPut(id,f);meta={storage:'local'}}
     }catch(e){toast('檔案上傳失敗：'+(e.message||e.code||''));return false}
     const {file,...rest}=o;
     const ok=await save('contracts',{...rest,...meta,id,fileName:f.name,type:f.type,size:f.size,createdAt:Date.now()});
-    if(ok)toast('合約已上傳');return ok;
+    if(ok)toast('合約已上傳');else if(meta.fileId)sheetApi({action:'deleteFile',fileId:meta.fileId}).catch(()=>{});return ok;
   });
 }
 function contractCard(c){
-  const link=c.storage==='assets'?`<a class="btn sm" style="text-decoration:none;display:inline-block" href="${esc(c.url)}" target="_blank" rel="noopener">開啟檔案</a>`:`<button class="btn sm" data-act="viewContract" data-id="${c.id}">檢視檔案</button>`;
+  const link=(c.storage==='assets'||c.storage==='drive')?`<a class="btn sm" style="text-decoration:none;display:inline-block" href="${esc(c.url)}" target="_blank" rel="noopener">開啟檔案</a>`:`<button class="btn sm" data-act="viewContract" data-id="${c.id}">檢視檔案</button>`;
   return `<div class="card"><div class="row"><div><div class="name">${esc(c.title)}</div><div class="sub">${esc(mName(c.memberId))}</div></div>${endBadge(c)}</div>
   <div class="sub" style="margin-top:6px">${esc(c.start||'—')} ～ ${esc(c.end||'—')} ・ ${esc(c.fileName||'')}（${fmtSize(c.size||0)}）</div>${c.note?`<div class="sub pre">${esc(c.note)}</div>`:''}
   <div class="acts" style="justify-content:flex-start">${link}<button class="btn dng sm" data-act="delContract" data-id="${c.id}">刪除</button></div></div>`;
@@ -313,7 +333,7 @@ async function viewContractLocal(c){
 function viewContracts(){
   const list=data.contracts.slice().sort((a,b)=>(a.end||'9999').localeCompare(b.end||'9999'));
   return `<div class="bar"><button class="btn" data-act="addContract">＋ 上傳合約</button></div>
-  ${mode==='local'?'<div class="note">目前資料只存在這個瀏覽器，換裝置或清除瀏覽器資料就會消失。</div>':''}
+  ${localNote()}
   ${list.length?list.map(contractCard).join(''):'<div class="empty">還沒有合約，按上方按鈕上傳</div>'}`;
 }
 
@@ -322,6 +342,7 @@ function render(){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===state.view));
   const app=$('#app');
   if(!state.loaded){app.innerHTML=`<div class="empty">載入中…${state.slow?'<br>目前連不上資料庫，請檢查網路。':''}</div>`;return}
+  if(state.err){app.innerHTML=`<div class="empty">連線失敗：${esc(state.err)}<br><br><button class="btn" data-act="retry">重試</button> <button class="btn sec" data-act="skSet">連線設定</button></div>`;return}
   const keep=document.activeElement&&document.activeElement.id;
   const pos=keep?document.activeElement.selectionStart:0;
   app.innerHTML=({members:viewMembers,checkin:viewCheckin,classes:viewClasses,contracts:viewContracts})[state.view]();
@@ -332,6 +353,8 @@ document.addEventListener('click',async e=>{
   const t=e.target.closest('[data-act]');if(!t)return;
   const id=t.dataset.id,a=t.dataset.act;
   if(a==='nav'){state.view=t.dataset.v;state.detail=null;render();window.scrollTo(0,0)}
+  else if(a==='retry'){state.loaded=false;state.err=null;render();await loadSheet(true)}
+  else if(a==='skSet')skSettings();
   else if(a==='addMember')editMember(null);
   else if(a==='openMember'){state.detail=id;render();window.scrollTo(0,0)}
   else if(a==='closeDetail'){state.detail=null;render()}
@@ -358,7 +381,7 @@ document.addEventListener('click',async e=>{
   }
 });
 async function delFile(c){
-  try{if(c.storage==='assets'&&assetsh&&c.assetId)await assetsh.delete(c.assetId);else if(c.storage==='local'){await idbDel(c.id);if(c.ghPath&&gh.ok())await gh.del(c.ghPath)}}catch(e){}
+  try{if(c.storage==='assets'&&assetsh&&c.assetId)await assetsh.delete(c.assetId);else if(c.storage==='drive'&&c.fileId)await sheetApi({action:'deleteFile',fileId:c.fileId});else if(c.storage==='local')await idbDel(c.id)}catch(e){}
 }
 document.addEventListener('input',e=>{
   if(e.target.id==='q'){state.q=e.target.value;render()}
@@ -371,163 +394,83 @@ document.addEventListener('change',e=>{
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 
-/* ---------- GitHub 備份（只允許私人 repo） ---------- */
-const GH_KEY='gym_gh';
+/* ---------- Google 試算表連線（Apps Script） ---------- */
+const SK='gym_sheet';
+let pending=0;
+const sheetCfg=()=>{try{const c=JSON.parse(localStorage.getItem(SK)||'null');return c&&c.url&&c.token?c:null}catch(e){return null}};
 function b64buf(u8){let s='';const n=0x8000;for(let i=0;i<u8.length;i+=n)s+=String.fromCharCode.apply(null,u8.subarray(i,i+n));return btoa(s)}
-const b64txt=t=>b64buf(new TextEncoder().encode(t));
-const unb64txt=b=>{const bin=atob(b.replace(/\s/g,''));const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new TextDecoder().decode(u)};
-const gh={
-  cfg(){try{return JSON.parse(localStorage.getItem(GH_KEY)||'null')}catch(e){return null}},
-  setCfg(c){try{localStorage.setItem(GH_KEY,JSON.stringify(c))}catch(e){}},
-  ok(){const c=gh.cfg();return !!(c&&c.owner&&c.repo&&c.token)},
-  base(c){return 'https://api.github.com/repos/'+encodeURIComponent(c.owner)+'/'+encodeURIComponent(c.repo)},
-  hdr(c,raw,json){const h={Authorization:'Bearer '+c.token,Accept:raw?'application/vnd.github.raw+json':'application/vnd.github+json'};if(json)h['Content-Type']='application/json';return h},
-  enc(path){return path.split('/').map(encodeURIComponent).join('/')},
-  fail(r){const e=new Error('HTTP '+r.status);e.status=r.status;return e},
-  err(e){
-    if(e.status===401)return '金鑰無效或已過期';
-    if(e.status===403)return '金鑰權限不足（需要 Contents 讀寫）';
-    if(e.status===404)return '找不到 repo，或金鑰沒有這個 repo 的權限';
-    if(e.status===422||e.status===409)return '檔案版本衝突，請再試一次';
-    return e.message||'網路錯誤';
-  },
-  _priv:null,
-  async assertPrivate(c){
-    c=c||gh.cfg();
-    const key=c.owner+'/'+c.repo;
-    if(gh._priv===key)return;
-    const r=await fetch(gh.base(c),{headers:gh.hdr(c)});
-    if(!r.ok)throw gh.fail(r);
-    const j=await r.json();
-    if(!j.private){const e=new Error('這個 repo 是公開的，不能存學員資料。請改用私人 repo。');throw e}
-    gh._priv=key;
-  },
-  async sha(path){
-    const c=gh.cfg();
-    const r=await fetch(gh.base(c)+'/contents/'+gh.enc(path),{headers:gh.hdr(c)});
-    if(r.status===404)return null;
-    if(!r.ok)throw gh.fail(r);
-    return (await r.json()).sha;
-  },
-  async put(path,b64,msg){
-    const c=gh.cfg();
-    for(let i=0;i<2;i++){
-      const sha=await gh.sha(path);
-      const r=await fetch(gh.base(c)+'/contents/'+gh.enc(path),{method:'PUT',headers:gh.hdr(c,false,true),body:JSON.stringify({message:msg,content:b64,...(sha?{sha}:{})})});
-      if(r.ok)return;
-      if(i===0&&(r.status===409||r.status===422))continue;
-      throw gh.fail(r);
-    }
-  },
-  async del(path){
-    const c=gh.cfg();await gh.assertPrivate(c);
-    const sha=await gh.sha(path);if(!sha)return;
-    await fetch(gh.base(c)+'/contents/'+gh.enc(path),{method:'DELETE',headers:gh.hdr(c,false,true),body:JSON.stringify({message:'刪除合約檔案',sha})});
-  },
-  async getRaw(path){
-    const c=gh.cfg();
-    const r=await fetch(gh.base(c)+'/contents/'+gh.enc(path),{headers:gh.hdr(c,true)});
-    if(r.status===404)return null;
-    if(!r.ok)throw gh.fail(r);
-    return r;
-  }
-};
-function setStat(t){const el=$('#ghStat');if(el)el.textContent=t}
-let syncing=false,again=false,syncTimer;
-function scheduleSync(){
-  if(mode!=='local'||!gh.ok())return;
-  clearTimeout(syncTimer);setStat('等待上傳…');
-  syncTimer=setTimeout(()=>syncNow(false),2500);
+function localNote(){
+  return (mode==='local'&&!dbh)?'<div class="note">尚未連線 Google 試算表，資料只存在這支手機，清除瀏覽器資料就會消失。請點右上「連線」完成設定。</div>':'';
 }
-async function syncNow(manual){
-  if(!gh.ok()){if(manual)toast('請先設定 GitHub 備份');return false}
-  if(syncing){again=true;return false}
-  syncing=true;setStat('上傳中…');
+async function sheetApi(body,cfg){
+  const c=cfg||sheetCfg();
+  if(!c)throw new Error('尚未設定連線');
+  let r;
+  try{r=await fetch(c.url,{method:'POST',body:JSON.stringify({...body,token:c.token}),redirect:'follow'})}
+  catch(e){throw new Error('連不上試算表程式，請確認網址與網路')}
+  let j;
+  try{j=await r.json()}catch(e){throw new Error('回應格式不正確，請確認網址是 Apps Script 的 /exec 網址，且「誰可以存取」設為所有人')}
+  if(!j.ok)throw new Error(j.error||'操作失敗');
+  return j;
+}
+async function loadSheet(first){
   try{
-    await gh.assertPrivate();
-    for(const c of data.contracts){
-      if(c.storage==='local'&&!c.ghPath){
-        const b=await idbGet(c.id);if(!b)continue;
-        const p='contracts/'+c.id+'_'+(c.fileName||'file').replace(/[^\w.\-一-鿿]/g,'_');
-        await gh.put(p,b64buf(new Uint8Array(await b.arrayBuffer())),'上傳合約檔案');
-        c.ghPath=p;local.put('contracts',data.contracts);
-      }
-    }
-    const snap={version:1,savedAt:new Date().toISOString(),members:data.members,classes:data.classes,checkins:data.checkins,contracts:data.contracts};
-    await gh.put('data.json',b64txt(JSON.stringify(snap,null,1)),'更新學員資料');
-    setStat('已備份 '+nowTime());
-    if(manual)toast('已上傳到 GitHub');
-    return true;
-  }catch(e){setStat('備份失敗');toast('GitHub 備份失敗：'+gh.err(e));return false}
-  finally{syncing=false;if(again){again=false;scheduleSync()}}
-}
-async function fetchRemote(){
-  const r=await gh.getRaw('data.json');
-  if(!r)return null;
-  return JSON.parse(await r.text());
-}
-async function restoreFromGithub(snap){
-  COLS.forEach(c=>{data[c]=Array.isArray(snap[c])?snap[c]:[];local.put(c,data[c])});
-  let miss=0;
-  for(const c of data.contracts){
-    if(c.storage==='local'&&c.ghPath){
-      try{
-        if(await idbGet(c.id))continue;
-        const r=await gh.getRaw(c.ghPath);
-        if(r)await idbPut(c.id,await r.blob());else miss++;
-      }catch(e){miss++}
-    }
+    const j=await sheetApi({action:'all'});
+    COLS.forEach(c=>data[c]=Array.isArray(j.data&&j.data[c])?j.data[c]:[]);
+    data.contracts=data.contracts.map(c=>({...c,storage:'drive'}));
+    state.err=null;state.loaded=true;state.slow=false;
+  }catch(e){
+    if(first){state.err=e.message||String(e);state.loaded=true}
+    else toast('重新整理失敗：'+(e.message||e));
   }
   render();
-  toast(miss?`已還原，但有 ${miss} 個合約檔案下載失敗`:'已從 GitHub 還原');
 }
-async function ghInit(){
-  $('#ghBtn').style.display='';
-  $('#ghBtn').onclick=ghSettings;
-  setStat(gh.ok()?'GitHub 備份已啟用':'尚未設定備份');
-  if(gh.ok()&&!data.members.length){
-    try{
-      await gh.assertPrivate();
-      const snap=await fetchRemote();
-      if(snap&&snap.members&&snap.members.length&&await confirmBox('這支手機目前沒有資料，但 GitHub 上有備份，要還原嗎？','還原'))await restoreFromGithub(snap);
-    }catch(e){}
+document.addEventListener('visibilitychange',()=>{
+  if(mode==='sheet'&&!document.hidden&&!pending&&state.loaded&&!state.err&&!$('#modal').classList.contains('on'))loadSheet(false);
+});
+async function migrateLocal(cfg){
+  for(const col of ['members','classes','checkins']){for(const row of data[col])await sheetApi({action:'save',col,row},cfg)}
+  for(const c of data.contracts){
+    let row=c;
+    if(c.storage==='local'){
+      const b=await idbGet(c.id);
+      if(b){const up=await sheetApi({action:'upload',id:c.id,name:c.fileName,type:c.type||'application/octet-stream',b64:b64buf(new Uint8Array(await b.arrayBuffer()))},cfg);row={...c,fileId:up.fileId,url:up.url}}
+    }
+    await sheetApi({action:'save',col:'contracts',row},cfg);
   }
 }
-function ghSettings(){
-  const c=gh.cfg()||{};
-  modal(`<h3>GitHub 備份設定</h3>
-  <div class="note">資料只能傳到「私人」repo（不要用公開的 gym）。金鑰請建 Fine-grained token，只給那個私人 repo 的 Contents 讀寫權限。金鑰只存在這支手機的瀏覽器裡。</div>
-  <form id="ghf">
-  <div class="f"><label>GitHub 帳號</label><input name="owner" value="${esc(c.owner||'')}" placeholder="例：kiddgayerqwer" autocapitalize="off"></div>
-  <div class="f"><label>私人 repo 名稱</label><input name="repo" value="${esc(c.repo||'')}" placeholder="例：gym-data" autocapitalize="off"></div>
-  <div class="f"><label>存取金鑰（token）${c.token?'— 已設定，留空表示不變':''}</label><input name="token" type="password" autocomplete="off" placeholder="github_pat_…"></div>
-  <div class="acts" style="flex-wrap:wrap"><button type="button" class="btn sec" id="gX">關閉</button><button class="btn" id="gS">儲存並測試</button></div>
+function skSettings(){
+  const c=sheetCfg()||{};
+  const on=mode==='sheet';
+  modal(`<h3>連線 Google 試算表</h3>
+  ${on?'<div class="note" style="background:#dcfce7;color:#15803d">已連線，資料存在你的 Google 試算表。</div>':'<div class="note">尚未連線：資料只存在這支手機。請先依說明部署 Apps Script，再填入下面兩欄。</div>'}
+  <form id="skf">
+  <div class="f"><label>Apps Script 網址（結尾是 /exec）</label><input name="url" value="${esc(c.url||'')}" placeholder="https://script.google.com/macros/s/…/exec" autocapitalize="off"></div>
+  <div class="f"><label>金鑰${c.token?'（已設定，留空表示不變）':''}</label><input name="token" type="password" autocomplete="off"></div>
+  <div class="acts"><button type="button" class="btn sec" id="kX">關閉</button><button class="btn" id="kS">儲存並連線</button></div>
   </form>
-  ${gh.ok()?`<h2>手動操作</h2><div class="acts" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn sec sm" id="gU">立即上傳</button><button class="btn sec sm" id="gR">從 GitHub 還原</button><button class="btn dng sm" id="gC">清除備份設定</button></div>`:''}`);
-  $('#gX').onclick=closeModal;
-  $('#ghf').onsubmit=async e=>{
-    e.preventDefault();const f=$('#ghf').elements;
-    const n={owner:f.owner.value.trim(),repo:f.repo.value.trim(),token:f.token.value.trim()||c.token||''};
-    if(!n.owner||!n.repo||!n.token){toast('請填寫帳號、repo 與金鑰');return}
-    const b=$('#gS');b.disabled=true;
+  ${on?`<h2>操作</h2><div class="acts" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn sec sm" id="kR">重新整理資料</button><button class="btn dng sm" id="kC">中斷這支手機的連線</button></div>`:''}`);
+  $('#kX').onclick=closeModal;
+  $('#skf').onsubmit=async e=>{
+    e.preventDefault();const f=$('#skf').elements;
+    const n={url:f.url.value.trim(),token:f.token.value.trim()||c.token||''};
+    if(!/^https:\/\/script\.google\.com\/.+\/exec$/.test(n.url)){toast('網址必須是 https://script.google.com/…/exec');return}
+    if(!n.token){toast('請填入金鑰');return}
+    const b=$('#kS');b.disabled=true;
     try{
-      gh._priv=null;await gh.assertPrivate(n);
-      gh.setCfg(n);toast('設定完成，開始上傳');closeModal();setStat('GitHub 備份已啟用');syncNow(true);
-    }catch(err){toast(gh.err(err))}
-    b.disabled=false;
+      await sheetApi({action:'ping'},n);
+      if(mode==='local'&&COLS.some(k=>data[k].length)){
+        const remote=await sheetApi({action:'all'},n);
+        const empty=COLS.every(k=>!(remote.data&&remote.data[k]&&remote.data[k].length));
+        if(empty&&await confirmBox('這支手機目前有資料，要把它上傳到 Google 試算表嗎？','上傳')){toast('上傳中，請稍候…');await migrateLocal(n)}
+      }
+      try{localStorage.setItem(SK,JSON.stringify(n))}catch(err){toast('無法儲存連線設定');b.disabled=false;return}
+      toast('連線成功');location.reload();
+    }catch(err){toast('連線失敗：'+(err.message||err));b.disabled=false}
   };
-  if($('#gU'))$('#gU').onclick=()=>{closeModal();syncNow(true)};
-  if($('#gR'))$('#gR').onclick=async()=>{
-    try{
-      await gh.assertPrivate();
-      const snap=await fetchRemote();
-      if(!snap){toast('GitHub 上還沒有備份');return}
-      if(await confirmBox('會用 GitHub 上的備份取代這支手機目前的資料，確定嗎？','還原'))await restoreFromGithub(snap);
-      closeModal();
-    }catch(err){toast('還原失敗：'+gh.err(err))}
-  };
-  if($('#gC'))$('#gC').onclick=async()=>{
-    if(await confirmBox('清除後，這支手機不會再自動備份（GitHub 上已有的備份不會被刪除）。','清除')){localStorage.removeItem(GH_KEY);gh._priv=null;setStat('尚未設定備份');closeModal();toast('已清除備份設定')}
+  if($('#kR'))$('#kR').onclick=async()=>{closeModal();await loadSheet(false);toast('已重新整理')};
+  if($('#kC'))$('#kC').onclick=async()=>{
+    if(await confirmBox('中斷後，這支手機不再連到試算表（試算表裡的資料不會被刪除）。','中斷連線')){localStorage.removeItem(SK);location.reload()}
   };
 }
 
