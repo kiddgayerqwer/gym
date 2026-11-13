@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>教練學員管理</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#1c2733;--mute:#6b7785;--line:#e3e8ee;--pri:#0f766e;--pri2:#ccfbf1;--warn:#b45309;--warnbg:#fef3c7;--bad:#b91c1c;--badbg:#fee2e2;--ok:#15803d;--okbg:#dcfce7}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--ink);padding-bottom:78px;font-size:15px}
+header{background:var(--pri);color:#fff;padding:14px 16px;position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:8px}
+header h1{font-size:17px;margin:0}
+header small{opacity:.85;font-size:12px}
+main{max-width:860px;margin:0 auto;padding:14px}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);display:flex;z-index:10}
+nav button{flex:1;border:0;background:none;padding:10px 4px 12px;font-size:12px;color:var(--mute);cursor:pointer;font-family:inherit}
+nav button b{display:block;font-size:20px;font-weight:400;margin-bottom:2px}
+nav button.on{color:var(--pri);font-weight:700}
+.bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.bar input,.bar select{flex:1;min-width:120px}
+input,select,textarea{font:inherit;padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:#fff;width:100%;color:var(--ink)}
+textarea{min-height:84px;resize:vertical}
+button.btn{font:inherit;border:0;background:var(--pri);color:#fff;padding:10px 16px;border-radius:9px;cursor:pointer;font-weight:600;white-space:nowrap}
+button.btn.sec{background:#fff;color:var(--pri);border:1px solid var(--pri)}
+button.btn.dng{background:#fff;color:var(--bad);border:1px solid #f3b4b4}
+button.btn.sm{padding:6px 11px;font-size:13px}
+button.btn:disabled{opacity:.5}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:10px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.card.click{cursor:pointer}
+.card.click:active{background:#f0fdfa}
+.name{font-weight:700;font-size:16px}
+.sub{color:var(--mute);font-size:13px;margin-top:2px}
+.badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:var(--pri2);color:var(--pri);white-space:nowrap}
+.badge.warn{background:var(--warnbg);color:var(--warn)}
+.badge.bad{background:var(--badbg);color:var(--bad)}
+.badge.ok{background:var(--okbg);color:var(--ok)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.stat b{display:block;font-size:22px;color:var(--pri)}
+.stat span{font-size:12px;color:var(--mute)}
+h2{font-size:15px;margin:18px 0 8px;display:flex;align-items:center;justify-content:space-between}
+.empty{text-align:center;color:var(--mute);padding:28px 10px;font-size:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+.grid div small{display:block;color:var(--mute);font-size:12px}
+.grid .full{grid-column:1/-1}
+.pre{white-space:pre-wrap}
+.back{background:none;border:0;color:var(--pri);font:inherit;font-weight:600;padding:0 0 10px;cursor:pointer}
+#modal{position:fixed;inset:0;background:rgba(15,23,32,.5);display:none;align-items:flex-end;justify-content:center;z-index:50}
+#modal.on{display:flex}
+#box{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px}
+@media(min-width:600px){#modal{align-items:center}#box{border-radius:16px}}
+#box h3{margin:0 0 12px;font-size:17px}
+.f{margin-bottom:10px}
+.f label{display:block;font-size:13px;color:var(--mute);margin-bottom:4px}
+.f label i{color:var(--bad);font-style:normal}
+.acts{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+#toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:#1c2733;color:#fff;padding:10px 16px;border-radius:99px;font-size:14px;z-index:60;display:none;max-width:90%}
+.note{background:var(--warnbg);color:var(--warn);border-radius:10px;padding:9px 12px;font-size:13px;margin-bottom:12px}
+.ckbtn{min-width:76px}
+img.prev{max-width:100%;border-radius:8px;border:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header><h1>🏋️ 教練學員管理</h1><small id="mode"></small></header>
+<main id="app"></main>
+<nav id="nav">
+  <button data-act="nav" data-v="members"><b>👥</b>學員</button>
+  <button data-act="nav" data-v="checkin"><b>✅</b>簽到</button>
+  <button data-act="nav" data-v="classes"><b>📝</b>上課紀錄</button>
+  <button data-act="nav" data-v="contracts"><b>📄</b>合約</button>
+</nav>
+<div id="modal"><div id="box"></div></div>
+<div id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const todayStr=()=>new Date().toLocaleDateString('sv-SE');
+const nowTime=()=>new Date().toTimeString().slice(0,5);
+const COLS=['members','classes','checkins','contracts'];
+const data={members:[],classes:[],checkins:[],contracts:[]};
+const state={view:'members',detail:null,q:'',cq:'',fMember:'',fCoach:'',fMonth:'',loaded:false,slow:false};
+let dbh=null,assetsh=null,mode='local';
+
+/* ---------- 儲存層：有雲端 db 就同步，沒有就存在本機瀏覽器 ---------- */
+const local={
+  get(c){try{return JSON.parse(localStorage.getItem('gym_'+c)||'[]')}catch(e){return []}},
+  put(c,a){try{localStorage.setItem('gym_'+c,JSON.stringify(a))}catch(e){toast('本機儲存空間不足')}}
+};
+function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('gym_files',1);r.onupgradeneeded=()=>r.result.createObjectStore('f');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function idbPut(k,b){const d=await idb();return new Promise((res,rej)=>{const t=d.transaction('f','readwrite');t.objectStore('f').put(b,k);t.oncomplete=res;t.onerror=()=>rej(t.error)})}
+async function idbGet(k){const d=await idb();return new Promise((res,rej)=>{const q=d.transaction('f').objectStore('f').get(k);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)})}
+async function idbDel(k){try{const d=await idb();d.transaction('f','readwrite').objectStore('f').delete(k)}catch(e){}}
+
+async function save(col,obj){
+  if(dbh){
+    try{await dbh.collection(col).doc(obj.id).set(obj);return true}
+    catch(e){toast('儲存失敗：'+(e.code==='invalid_argument'?'此帳號沒有編輯權限':(e.message||e.code)));return false}
+  }
+  const i=data[col].findIndex(x=>x.id===obj.id);
+  if(i>=0)data[col][i]=obj;else data[col].push(obj);
+  local.put(col,data[col]);render();return true;
+}
+async function remove(col,id){
+  if(dbh){
+    try{await dbh.collection(col).doc(id).delete();return true}
+    catch(e){toast('刪除失敗：'+(e.message||e.code));return false}
+  }
+  data[col]=data[col].filter(x=>x.id!==id);local.put(col,data[col]);render();return true;
+}
+async function init(){
+  try{
+    const c=window.claude;
+    if(c&&c.use){dbh=await c.use('db');assetsh=await c.use('assets')}
+  }catch(e){dbh=null;assetsh=null}
+  if(dbh){
+    mode='cloud';
+    const t=setTimeout(()=>{if(!state.loaded){state.slow=true;render()}},10000);
+    let got=0;
+    COLS.forEach(col=>{
+      dbh.collection(col).onSnapshot(snap=>{
+        data[col]=snap.docs.map(d=>({...d.data(),id:d.id}));
+        got++;if(got>=COLS.length){state.loaded=true;state.slow=false;clearTimeout(t)}
+        render();
+      },err=>{toast('資料讀取失敗：'+err.code);state.loaded=true;render()});
+    });
+  }else{
+    COLS.forEach(c=>data[c]=local.get(c));state.loaded=true;
+  }
+  $('#mode').textContent=mode==='cloud'?'☁️ 雲端同步':'💾 僅存此瀏覽器';
+  render();
+}
+
+/* ---------- 小工具 ---------- */
+let tt;
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>t.style.display='none',2600)}
+function modal(html){$('#box').innerHTML=html;$('#modal').classList.add('on')}
+function closeModal(){$('#modal').classList.remove('on');$('#box').innerHTML=''}
+function confirmBox(msg,okText='確定'){
+  return new Promise(res=>{
+    modal(`<h3>請確認</h3><p>${esc(msg)}</p><div class="acts"><button class="btn sec" id="cN">取消</button><button class="btn dng" id="cY">${esc(okText)}</button></div>`);
+    $('#cN').onclick=()=>{closeModal();res(false)};$('#cY').onclick=()=>{closeModal();res(true)};
+  });
+}
+const memberById=id=>data.members.find(m=>m.id===id);
+const mName=id=>memberById(id)?.name||'(已刪除學員)';
+const used=id=>data.checkins.filter(c=>c.memberId===id).length;
+const remain=m=>(Number(m.total)||0)-used(m.id);
+const coaches=()=>[...new Set([...data.members.map(m=>m.coach),...data.classes.map(c=>c.coach),...data.checkins.map(c=>c.coach)].filter(Boolean))].sort();
+function remainBadge(m){
+  const r=remain(m);
+  if(!m.total)return `<span class="badge">未設定堂數</span>`;
+  return `<span class="badge ${r<=0?'bad':r<=3?'warn':'ok'}">剩 ${r} 堂</span>`;
+}
+function endBadge(c){
+  if(!c.end)return '';
+  const d=Math.round((new Date(c.end)-new Date(todayStr()))/864e5);
+  if(d<0)return `<span class="badge bad">已到期</span>`;
+  if(d<=30)return `<span class="badge warn">${d} 天後到期</span>`;
+  return `<span class="badge ok">有效</span>`;
+}
+function fmtSize(n){return n>1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB'}
+
+/* ---------- 通用表單 ---------- */
+function formModal(title,fields,init,onSave){
+  const dl=`<datalist id="coachList">${coaches().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>`;
+  const body=fields.map(f=>{
+    const v=init[f.k]??f.def??'';let inp;
+    if(f.t==='select')inp=`<select name="${f.k}" ${f.req?'required':''}>${f.req?'':'<option value=""></option>'}${f.opts.map(o=>{const [val,lab]=Array.isArray(o)?o:[o,o];return `<option value="${esc(val)}" ${String(v)===String(val)?'selected':''}>${esc(lab)}</option>`}).join('')}</select>`;
+    else if(f.t==='textarea')inp=`<textarea name="${f.k}" placeholder="${esc(f.ph||'')}">${esc(v)}</textarea>`;
+    else inp=`<input name="${f.k}" type="${f.t||'text'}" value="${esc(v)}" ${f.req?'required':''} ${f.t==='number'?'min="0" inputmode="numeric"':''} ${f.list?'list="coachList"':''} ${f.ph?`placeholder="${esc(f.ph)}"`:''} ${f.acc?`accept="${f.acc}"`:''}>`;
+    return `<div class="f"><label>${esc(f.l)}${f.req?' <i>*</i>':''}</label>${inp}</div>`;
+  }).join('');
+  modal(`<h3>${esc(title)}</h3><form id="frm">${body}${dl}<div class="acts"><button type="button" class="btn sec" id="fCancel">取消</button><button class="btn" id="fS">儲存</button></div></form>`);
+  $('#fCancel').onclick=closeModal;
+  $('#frm').onsubmit=async e=>{
+    e.preventDefault();const b=$('#fS');b.disabled=true;
+    const o={};fields.forEach(f=>{const el=$('#frm').elements[f.k];if(f.t==='file')o[f.k]=el.files[0]||null;else o[f.k]=el.value.trim()});
+    const ok=await onSave(o);b.disabled=false;if(ok!==false)closeModal();
+  };
+}
+
+/* ---------- 學員 ---------- */
+const memberFields=[
+  {k:'name',l:'姓名',req:1},{k:'phone',l:'電話',t:'tel'},
+  {k:'gender',l:'性別',t:'select',opts:['男','女','其他']},{k:'birthday',l:'生日',t:'date'},
+  {k:'emergency',l:'緊急聯絡人'},{k:'emergencyPhone',l:'緊急聯絡電話',t:'tel'},
+  {k:'coach',l:'負責教練',list:1},{k:'joinDate',l:'入會日期',t:'date',def:todayStr()},
+  {k:'plan',l:'課程方案',ph:'例：一對一 20 堂'},{k:'total',l:'購買堂數',t:'number'},
+  {k:'goal',l:'訓練目標',t:'textarea'},{k:'health',l:'傷病／健康注意事項',t:'textarea'},{k:'note',l:'其他備註',t:'textarea'}
+];
+function editMember(m){
+  formModal(m?'編輯學員':'新增學員',memberFields,m||{},async o=>{
+    const obj={...(m||{}),...o,id:m?m.id:uid(),createdAt:m?.createdAt||Date.now()};
+    const ok=await save('members',obj);if(ok&&!m)toast('已新增學員');return ok;
+  });
+}
+function viewMembers(){
+  if(state.detail){const m=memberById(state.detail);if(m)return viewDetail(m);state.detail=null}
+  const q=state.q.toLowerCase();
+  const list=data.members.filter(m=>!q||[m.name,m.phone,m.coach,m.plan].some(x=>String(x||'').toLowerCase().includes(q))).sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
+  const low=data.members.filter(m=>m.total&&remain(m)<=3).length;
+  const todayCk=data.checkins.filter(c=>c.date===todayStr()).length;
+  return `<div class="stats"><div class="stat"><b>${data.members.length}</b><span>學員數</span></div><div class="stat"><b>${todayCk}</b><span>今日簽到</span></div><div class="stat"><b>${low}</b><span>堂數 ≤ 3</span></div></div>
+  <div class="bar"><input id="q" placeholder="搜尋姓名、電話、教練…" value="${esc(state.q)}"><button class="btn" data-act="addMember">＋ 新增學員</button></div>
+  ${list.length?list.map(m=>`<div class="card click" data-act="openMember" data-id="${m.id}"><div class="row"><div><div class="name">${esc(m.name)}</div><div class="sub">${esc(m.phone||'未填電話')}${m.coach?' ・ 教練 '+esc(m.coach):''}</div></div>${remainBadge(m)}</div></div>`).join(''):`<div class="empty">${data.members.length?'找不到符合的學員':'還沒有學員，按右上「新增學員」開始建立'}</div>`}`;
+}
+function viewDetail(m){
+  const cls=data.classes.filter(c=>c.memberId===m.id).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const cks=data.checkins.filter(c=>c.memberId===m.id).sort((a,b)=>b.ts-a.ts);
+  const cts=data.contracts.filter(c=>c.memberId===m.id).sort((a,b)=>b.createdAt-a.createdAt);
+  const g=(l,v,full)=>`<div class="${full?'full':''}"><small>${l}</small><span class="pre">${esc(v||'—')}</span></div>`;
+  return `<button class="back" data-act="closeDetail">← 返回學員列表</button>
+  <div class="card"><div class="row"><div class="name" style="font-size:19px">${esc(m.name)}</div>${remainBadge(m)}</div>
+  <div class="grid" style="margin-top:10px">${g('電話',m.phone)}${g('性別',m.gender)}${g('生日',m.birthday)}${g('入會日期',m.joinDate)}${g('負責教練',m.coach)}${g('課程方案',m.plan)}${g('購買堂數',m.total)}${g('已簽到',used(m.id)+' 次')}${g('緊急聯絡人',[m.emergency,m.emergencyPhone].filter(Boolean).join(' ／ '),1)}${g('訓練目標',m.goal,1)}${g('傷病／健康注意事項',m.health,1)}${g('其他備註',m.note,1)}</div>
+  <div class="acts" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn" data-act="quickCheckin" data-id="${m.id}">✅ 今日簽到</button><button class="btn sec" data-act="editMember" data-id="${m.id}">編輯資料</button><button class="btn dng" data-act="delMember" data-id="${m.id}">刪除學員</button></div></div>
+  <h2>上課紀錄（${cls.length}）<button class="btn sm" data-act="addClass" data-id="${m.id}">＋ 新增</button></h2>
+  ${cls.length?cls.map(classCard).join(''):'<div class="empty">尚無上課紀錄</div>'}
+  <h2>簽到紀錄（${cks.length}）</h2>
+  ${cks.length?cks.slice(0,30).map(c=>`<div class="card"><div class="row"><div>${esc(c.date)} ${esc(c.time||'')}<div class="sub">${c.coach?'教練 '+esc(c.coach):''}</div></div><button class="btn dng sm" data-act="delCheckin" data-id="${c.id}">取消</button></div></div>`).join('')+(cks.length>30?`<div class="empty">僅顯示最近 30 筆</div>`:''):'<div class="empty">尚無簽到紀錄</div>'}
+  <h2>合約（${cts.length}）<button class="btn sm" data-act="addContract" data-id="${m.id}">＋ 上傳</button></h2>
+  ${cts.length?cts.map(contractCard).join(''):'<div class="empty">尚未上傳合約</div>'}`;
+}
+
+/* ---------- 簽到 ---------- */
+async function doCheckin(id){
+  const m=memberById(id);if(!m)return;
+  const dup=data.checkins.some(c=>c.memberId===id&&c.date===todayStr());
+  if(dup&&!(await confirmBox(`${m.name} 今天已經簽到過了，要再簽一次嗎？`,'再簽一次')))return;
+  if(m.total&&remain(m)<=0&&!(await confirmBox(`${m.name} 的堂數已用完，仍要簽到嗎？`,'仍要簽到')))return;
+  const ok=await save('checkins',{id:uid(),memberId:id,date:todayStr(),time:nowTime(),ts:Date.now(),coach:m.coach||''});
+  if(ok)toast(`${m.name} 簽到完成`);
+}
+function viewCheckin(){
+  const q=state.cq.toLowerCase();
+  const list=data.members.filter(m=>!q||[m.name,m.phone].some(x=>String(x||'').toLowerCase().includes(q))).sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
+  const today=data.checkins.filter(c=>c.date===todayStr()).sort((a,b)=>b.ts-a.ts);
+  const done=new Set(today.map(c=>c.memberId));
+  return `<h2 style="margin-top:0">今日簽到　${todayStr()}</h2>
+  <div class="bar"><input id="cq" placeholder="輸入學員姓名或電話…" value="${esc(state.cq)}"></div>
+  ${list.length?list.map(m=>`<div class="card"><div class="row"><div><div class="name">${esc(m.name)} ${done.has(m.id)?'<span class="badge ok">今日已簽</span>':''}</div><div class="sub">${m.total?'剩 '+remain(m)+' 堂':'未設定堂數'}${m.coach?' ・ 教練 '+esc(m.coach):''}</div></div><button class="btn ckbtn" data-act="checkin" data-id="${m.id}">簽到</button></div></div>`).join(''):`<div class="empty">${data.members.length?'找不到學員':'請先到「學員」頁建立學員資料'}</div>`}
+  <h2>今日已簽到（${today.length}）</h2>
+  ${today.length?today.map(c=>`<div class="card"><div class="row"><div><b>${esc(mName(c.memberId))}</b> <span class="sub">${esc(c.time||'')}${c.coach?' ・ 教練 '+esc(c.coach):''}</span></div><div style="display:flex;gap:6px"><button class="btn sec sm" data-act="addClass" data-id="${c.memberId}">寫上課紀錄</button><button class="btn dng sm" data-act="delCheckin" data-id="${c.id}">取消</button></div></div></div>`).join(''):'<div class="empty">今天還沒有人簽到</div>'}`;
+}
+
+/* ---------- 上課紀錄 ---------- */
+function classCard(c){
+  return `<div class="card"><div class="row"><div><div class="name">${esc(c.date)} ${esc(c.time||'')}</div><div class="sub">${esc(mName(c.memberId))}${c.coach?' ・ 教練 '+esc(c.coach):''}</div></div><div style="display:flex;gap:6px"><button class="btn sec sm" data-act="editClass" data-id="${c.id}">編輯</button><button class="btn dng sm" data-act="delClass" data-id="${c.id}">刪除</button></div></div>
+  ${c.content?`<div class="pre" style="margin-top:8px">${esc(c.content)}</div>`:''}${c.note?`<div class="sub pre" style="margin-top:6px">備註：${esc(c.note)}</div>`:''}</div>`;
+}
+function editClass(c,memberId){
+  const fields=[
+    {k:'memberId',l:'學員',t:'select',req:1,opts:data.members.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant')).map(m=>[m.id,m.name])},
+    {k:'date',l:'上課日期',t:'date',req:1,def:todayStr()},{k:'time',l:'上課時間',t:'time',def:nowTime()},
+    {k:'coach',l:'授課教練',list:1,req:1},{k:'content',l:'課程內容（動作、組數、重量…）',t:'textarea'},{k:'note',l:'學員狀況／下次建議',t:'textarea'}
+  ];
+  const m=memberById(memberId||c?.memberId);
+  const init=c?{...c}:{memberId:memberId,coach:m?.coach||''};
+  if(!data.members.length){toast('請先建立學員資料');return}
+  formModal(c?'編輯上課紀錄':'新增上課紀錄',fields,init,async o=>save('classes',{...(c||{}),...o,id:c?c.id:uid(),createdAt:c?.createdAt||Date.now()}));
+}
+function viewClasses(){
+  const months=[...new Set(data.classes.map(c=>(c.date||'').slice(0,7)).filter(Boolean))].sort().reverse();
+  let list=data.classes.filter(c=>(!state.fMember||c.memberId===state.fMember)&&(!state.fCoach||c.coach===state.fCoach)&&(!state.fMonth||(c.date||'').startsWith(state.fMonth)));
+  list=list.sort((a,b)=>(b.date+(b.time||'')).localeCompare(a.date+(a.time||'')));
+  const opt=(v,cur,l)=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(l)}</option>`;
+  return `<div class="bar"><button class="btn" data-act="addClass">＋ 新增上課紀錄</button></div>
+  <div class="bar"><select id="fM"><option value="">全部學員</option>${data.members.map(m=>opt(m.id,state.fMember,m.name)).join('')}</select>
+  <select id="fC"><option value="">全部教練</option>${coaches().map(c=>opt(c,state.fCoach,c)).join('')}</select>
+  <select id="fMo"><option value="">全部月份</option>${months.map(m=>opt(m,state.fMonth,m)).join('')}</select></div>
+  <div class="sub" style="margin-bottom:8px">共 ${list.length} 筆</div>
+  ${list.length?list.map(classCard).join(''):'<div class="empty">沒有符合的上課紀錄</div>'}`;
+}
+
+/* ---------- 合約 ---------- */
+function addContract(memberId){
+  if(!data.members.length){toast('請先建立學員資料');return}
+  const fields=[
+    {k:'memberId',l:'學員',t:'select',req:1,opts:data.members.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant')).map(m=>[m.id,m.name])},
+    {k:'title',l:'合約名稱',req:1,ph:'例：一對一 20 堂合約'},{k:'start',l:'合約起日',t:'date',def:todayStr()},{k:'end',l:'合約到期日',t:'date'},
+    {k:'file',l:'合約檔案（PDF 或照片，20MB 內）',t:'file',req:1,acc:'application/pdf,image/*'},{k:'note',l:'備註',t:'textarea'}
+  ];
+  formModal('上傳合約',fields,{memberId},async o=>{
+    const f=o.file;if(!f){toast('請選擇檔案');return false}
+    if(f.size>20*1048576){toast('檔案超過 20MB');return false}
+    const id=uid();let meta={};
+    try{
+      if(assetsh){const r=await assetsh.upload(f);meta={storage:'assets',assetId:r.id,url:r.url}}
+      else{await idbPut(id,f);meta={storage:'local'}}
+    }catch(e){toast('檔案上傳失敗：'+(e.message||e.code||''));return false}
+    const {file,...rest}=o;
+    const ok=await save('contracts',{...rest,...meta,id,fileName:f.name,type:f.type,size:f.size,createdAt:Date.now()});
+    if(ok)toast('合約已上傳');return ok;
+  });
+}
+function contractCard(c){
+  const link=c.storage==='assets'?`<a class="btn sm" style="text-decoration:none;display:inline-block" href="${esc(c.url)}" target="_blank" rel="noopener">開啟檔案</a>`:`<button class="btn sm" data-act="viewContract" data-id="${c.id}">檢視檔案</button>`;
+  return `<div class="card"><div class="row"><div><div class="name">${esc(c.title)}</div><div class="sub">${esc(mName(c.memberId))}</div></div>${endBadge(c)}</div>
+  <div class="sub" style="margin-top:6px">${esc(c.start||'—')} ～ ${esc(c.end||'—')} ・ ${esc(c.fileName||'')}（${fmtSize(c.size||0)}）</div>${c.note?`<div class="sub pre">${esc(c.note)}</div>`:''}
+  <div class="acts" style="justify-content:flex-start">${link}<button class="btn dng sm" data-act="delContract" data-id="${c.id}">刪除</button></div></div>`;
+}
+async function viewContractLocal(c){
+  const b=await idbGet(c.id);
+  if(!b){toast('找不到檔案（可能已清除瀏覽器資料）');return}
+  const u=URL.createObjectURL(b);
+  modal(`<h3>${esc(c.title)}</h3>${(c.type||'').startsWith('image/')?`<img class="prev" src="${u}">`:''}<p><a href="${u}" target="_blank" rel="noopener">在新分頁開啟</a>（${esc(c.fileName)}）</p><div class="acts"><button class="btn sec" id="vC">關閉</button></div>`);
+  $('#vC').onclick=closeModal;
+}
+function viewContracts(){
+  const list=data.contracts.slice().sort((a,b)=>(a.end||'9999').localeCompare(b.end||'9999'));
+  return `<div class="bar"><button class="btn" data-act="addContract">＋ 上傳合約</button></div>
+  ${mode==='local'?'<div class="note">目前資料只存在這個瀏覽器，換裝置或清除瀏覽器資料就會消失。</div>':''}
+  ${list.length?list.map(contractCard).join(''):'<div class="empty">還沒有合約，按上方按鈕上傳</div>'}`;
+}
+
+/* ---------- 畫面與事件 ---------- */
+function render(){
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===state.view));
+  const app=$('#app');
+  if(!state.loaded){app.innerHTML=`<div class="empty">載入中…${state.slow?'<br>目前連不上資料庫，請檢查網路。':''}</div>`;return}
+  const keep=document.activeElement&&document.activeElement.id;
+  const pos=keep?document.activeElement.selectionStart:0;
+  app.innerHTML=({members:viewMembers,checkin:viewCheckin,classes:viewClasses,contracts:viewContracts})[state.view]();
+  if(keep==='q'||keep==='cq'){const el=$('#'+keep);if(el){el.focus();try{el.setSelectionRange(pos,pos)}catch(e){}}}
+}
+document.addEventListener('click',async e=>{
+  if(e.target.id==='modal'){closeModal();return}
+  const t=e.target.closest('[data-act]');if(!t)return;
+  const id=t.dataset.id,a=t.dataset.act;
+  if(a==='nav'){state.view=t.dataset.v;state.detail=null;render();window.scrollTo(0,0)}
+  else if(a==='addMember')editMember(null);
+  else if(a==='openMember'){state.detail=id;render();window.scrollTo(0,0)}
+  else if(a==='closeDetail'){state.detail=null;render()}
+  else if(a==='editMember')editMember(memberById(id));
+  else if(a==='delMember'){
+    const m=memberById(id);
+    if(await confirmBox(`確定刪除「${m.name}」？其上課紀錄、簽到與合約也會一併刪除，無法復原。`,'刪除')){
+      for(const c of data.classes.filter(x=>x.memberId===id))await remove('classes',c.id);
+      for(const c of data.checkins.filter(x=>x.memberId===id))await remove('checkins',c.id);
+      for(const c of data.contracts.filter(x=>x.memberId===id)){await delFile(c);await remove('contracts',c.id)}
+      await remove('members',id);state.detail=null;render();toast('已刪除');
+    }
+  }
+  else if(a==='quickCheckin'||a==='checkin')doCheckin(id);
+  else if(a==='delCheckin'){if(await confirmBox('確定取消這筆簽到？','取消簽到'))remove('checkins',id)}
+  else if(a==='addClass')editClass(null,id);
+  else if(a==='editClass')editClass(data.classes.find(c=>c.id===id));
+  else if(a==='delClass'){if(await confirmBox('確定刪除這筆上課紀錄？','刪除'))remove('classes',id)}
+  else if(a==='addContract')addContract(id);
+  else if(a==='viewContract')viewContractLocal(data.contracts.find(c=>c.id===id));
+  else if(a==='delContract'){
+    const c=data.contracts.find(x=>x.id===id);
+    if(await confirmBox(`確定刪除合約「${c.title}」？檔案也會一併刪除。`,'刪除')){await delFile(c);remove('contracts',id)}
+  }
+});
+async function delFile(c){
+  try{if(c.storage==='assets'&&assetsh&&c.assetId)await assetsh.delete(c.assetId);else if(c.storage==='local')await idbDel(c.id)}catch(e){}
+}
+document.addEventListener('input',e=>{
+  if(e.target.id==='q'){state.q=e.target.value;render()}
+  if(e.target.id==='cq'){state.cq=e.target.value;render()}
+});
+document.addEventListener('change',e=>{
+  if(e.target.id==='fM'){state.fMember=e.target.value;render()}
+  if(e.target.id==='fC'&&!e.target.form){state.fCoach=e.target.value;render()}
+  if(e.target.id==='fMo'){state.fMonth=e.target.value;render()}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+init();
+</script>
+</body>
+</html>
