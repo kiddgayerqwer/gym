@@ -63,7 +63,7 @@ img.prev{max-width:100%;border-radius:8px;border:1px solid var(--line)}
 </style>
 </head>
 <body>
-<header><h1>🏋️ 教練學員管理</h1><small id="mode"></small></header>
+<header><h1>🏋️ 教練學員管理</h1><div style="display:flex;align-items:center;gap:10px;text-align:right"><div><small id="mode"></small><br><small id="ghStat"></small></div><button id="ghBtn" class="btn sm" style="display:none;background:#fff;color:#0f766e">備份</button></div></header>
 <main id="app"></main>
 <nav id="nav">
   <button data-act="nav" data-v="members"><b>👥</b>學員</button>
@@ -102,14 +102,14 @@ async function save(col,obj){
   }
   const i=data[col].findIndex(x=>x.id===obj.id);
   if(i>=0)data[col][i]=obj;else data[col].push(obj);
-  local.put(col,data[col]);render();return true;
+  local.put(col,data[col]);render();scheduleSync();return true;
 }
 async function remove(col,id){
   if(dbh){
     try{await dbh.collection(col).doc(id).delete();return true}
     catch(e){toast('刪除失敗：'+(e.message||e.code));return false}
   }
-  data[col]=data[col].filter(x=>x.id!==id);local.put(col,data[col]);render();return true;
+  data[col]=data[col].filter(x=>x.id!==id);local.put(col,data[col]);render();scheduleSync();return true;
 }
 async function init(){
   try{
@@ -132,6 +132,7 @@ async function init(){
   }
   $('#mode').textContent=mode==='cloud'?'☁️ 雲端同步':'💾 僅存此瀏覽器';
   render();
+  if(mode==='local')ghInit();
 }
 
 /* ---------- 小工具 ---------- */
@@ -357,7 +358,7 @@ document.addEventListener('click',async e=>{
   }
 });
 async function delFile(c){
-  try{if(c.storage==='assets'&&assetsh&&c.assetId)await assetsh.delete(c.assetId);else if(c.storage==='local')await idbDel(c.id)}catch(e){}
+  try{if(c.storage==='assets'&&assetsh&&c.assetId)await assetsh.delete(c.assetId);else if(c.storage==='local'){await idbDel(c.id);if(c.ghPath&&gh.ok())await gh.del(c.ghPath)}}catch(e){}
 }
 document.addEventListener('input',e=>{
   if(e.target.id==='q'){state.q=e.target.value;render()}
@@ -369,6 +370,167 @@ document.addEventListener('change',e=>{
   if(e.target.id==='fMo'){state.fMonth=e.target.value;render()}
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+/* ---------- GitHub 備份（只允許私人 repo） ---------- */
+const GH_KEY='gym_gh';
+function b64buf(u8){let s='';const n=0x8000;for(let i=0;i<u8.length;i+=n)s+=String.fromCharCode.apply(null,u8.subarray(i,i+n));return btoa(s)}
+const b64txt=t=>b64buf(new TextEncoder().encode(t));
+const unb64txt=b=>{const bin=atob(b.replace(/\s/g,''));const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new TextDecoder().decode(u)};
+const gh={
+  cfg(){try{return JSON.parse(localStorage.getItem(GH_KEY)||'null')}catch(e){return null}},
+  setCfg(c){try{localStorage.setItem(GH_KEY,JSON.stringify(c))}catch(e){}},
+  ok(){const c=gh.cfg();return !!(c&&c.owner&&c.repo&&c.token)},
+  base(c){return 'https://api.github.com/repos/'+encodeURIComponent(c.owner)+'/'+encodeURIComponent(c.repo)},
+  hdr(c,raw,json){const h={Authorization:'Bearer '+c.token,Accept:raw?'application/vnd.github.raw+json':'application/vnd.github+json'};if(json)h['Content-Type']='application/json';return h},
+  enc(path){return path.split('/').map(encodeURIComponent).join('/')},
+  fail(r){const e=new Error('HTTP '+r.status);e.status=r.status;return e},
+  err(e){
+    if(e.status===401)return '金鑰無效或已過期';
+    if(e.status===403)return '金鑰權限不足（需要 Contents 讀寫）';
+    if(e.status===404)return '找不到 repo，或金鑰沒有這個 repo 的權限';
+    if(e.status===422||e.status===409)return '檔案版本衝突，請再試一次';
+    return e.message||'網路錯誤';
+  },
+  _priv:null,
+  async assertPrivate(c){
+    c=c||gh.cfg();
+    const key=c.owner+'/'+c.repo;
+    if(gh._priv===key)return;
+    const r=await fetch(gh.base(c),{headers:gh.hdr(c)});
+    if(!r.ok)throw gh.fail(r);
+    const j=await r.json();
+    if(!j.private){const e=new Error('這個 repo 是公開的，不能存學員資料。請改用私人 repo。');throw e}
+    gh._priv=key;
+  },
+  async sha(path){
+    const c=gh.cfg();
+    const r=await fetch(gh.base(c)+'/contents/'+gh.enc(path),{headers:gh.hdr(c)});
+    if(r.status===404)return null;
+    if(!r.ok)throw gh.fail(r);
+    return (await r.json()).sha;
+  },
+  async put(path,b64,msg){
+    const c=gh.cfg();
+    for(let i=0;i<2;i++){
+      const sha=await gh.sha(path);
+      const r=await fetch(gh.base(c)+'/contents/'+gh.enc(path),{method:'PUT',headers:gh.hdr(c,false,true),body:JSON.stringify({message:msg,content:b64,...(sha?{sha}:{})})});
+      if(r.ok)return;
+      if(i===0&&(r.status===409||r.status===422))continue;
+      throw gh.fail(r);
+    }
+  },
+  async del(path){
+    const c=gh.cfg();await gh.assertPrivate(c);
+    const sha=await gh.sha(path);if(!sha)return;
+    await fetch(gh.base(c)+'/contents/'+gh.enc(path),{method:'DELETE',headers:gh.hdr(c,false,true),body:JSON.stringify({message:'刪除合約檔案',sha})});
+  },
+  async getRaw(path){
+    const c=gh.cfg();
+    const r=await fetch(gh.base(c)+'/contents/'+gh.enc(path),{headers:gh.hdr(c,true)});
+    if(r.status===404)return null;
+    if(!r.ok)throw gh.fail(r);
+    return r;
+  }
+};
+function setStat(t){const el=$('#ghStat');if(el)el.textContent=t}
+let syncing=false,again=false,syncTimer;
+function scheduleSync(){
+  if(mode!=='local'||!gh.ok())return;
+  clearTimeout(syncTimer);setStat('等待上傳…');
+  syncTimer=setTimeout(()=>syncNow(false),2500);
+}
+async function syncNow(manual){
+  if(!gh.ok()){if(manual)toast('請先設定 GitHub 備份');return false}
+  if(syncing){again=true;return false}
+  syncing=true;setStat('上傳中…');
+  try{
+    await gh.assertPrivate();
+    for(const c of data.contracts){
+      if(c.storage==='local'&&!c.ghPath){
+        const b=await idbGet(c.id);if(!b)continue;
+        const p='contracts/'+c.id+'_'+(c.fileName||'file').replace(/[^\w.\-一-鿿]/g,'_');
+        await gh.put(p,b64buf(new Uint8Array(await b.arrayBuffer())),'上傳合約檔案');
+        c.ghPath=p;local.put('contracts',data.contracts);
+      }
+    }
+    const snap={version:1,savedAt:new Date().toISOString(),members:data.members,classes:data.classes,checkins:data.checkins,contracts:data.contracts};
+    await gh.put('data.json',b64txt(JSON.stringify(snap,null,1)),'更新學員資料');
+    setStat('已備份 '+nowTime());
+    if(manual)toast('已上傳到 GitHub');
+    return true;
+  }catch(e){setStat('備份失敗');toast('GitHub 備份失敗：'+gh.err(e));return false}
+  finally{syncing=false;if(again){again=false;scheduleSync()}}
+}
+async function fetchRemote(){
+  const r=await gh.getRaw('data.json');
+  if(!r)return null;
+  return JSON.parse(await r.text());
+}
+async function restoreFromGithub(snap){
+  COLS.forEach(c=>{data[c]=Array.isArray(snap[c])?snap[c]:[];local.put(c,data[c])});
+  let miss=0;
+  for(const c of data.contracts){
+    if(c.storage==='local'&&c.ghPath){
+      try{
+        if(await idbGet(c.id))continue;
+        const r=await gh.getRaw(c.ghPath);
+        if(r)await idbPut(c.id,await r.blob());else miss++;
+      }catch(e){miss++}
+    }
+  }
+  render();
+  toast(miss?`已還原，但有 ${miss} 個合約檔案下載失敗`:'已從 GitHub 還原');
+}
+async function ghInit(){
+  $('#ghBtn').style.display='';
+  $('#ghBtn').onclick=ghSettings;
+  setStat(gh.ok()?'GitHub 備份已啟用':'尚未設定備份');
+  if(gh.ok()&&!data.members.length){
+    try{
+      await gh.assertPrivate();
+      const snap=await fetchRemote();
+      if(snap&&snap.members&&snap.members.length&&await confirmBox('這支手機目前沒有資料，但 GitHub 上有備份，要還原嗎？','還原'))await restoreFromGithub(snap);
+    }catch(e){}
+  }
+}
+function ghSettings(){
+  const c=gh.cfg()||{};
+  modal(`<h3>GitHub 備份設定</h3>
+  <div class="note">資料只能傳到「私人」repo（不要用公開的 gym）。金鑰請建 Fine-grained token，只給那個私人 repo 的 Contents 讀寫權限。金鑰只存在這支手機的瀏覽器裡。</div>
+  <form id="ghf">
+  <div class="f"><label>GitHub 帳號</label><input name="owner" value="${esc(c.owner||'')}" placeholder="例：kiddgayerqwer" autocapitalize="off"></div>
+  <div class="f"><label>私人 repo 名稱</label><input name="repo" value="${esc(c.repo||'')}" placeholder="例：gym-data" autocapitalize="off"></div>
+  <div class="f"><label>存取金鑰（token）${c.token?'— 已設定，留空表示不變':''}</label><input name="token" type="password" autocomplete="off" placeholder="github_pat_…"></div>
+  <div class="acts" style="flex-wrap:wrap"><button type="button" class="btn sec" id="gX">關閉</button><button class="btn" id="gS">儲存並測試</button></div>
+  </form>
+  ${gh.ok()?`<h2>手動操作</h2><div class="acts" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn sec sm" id="gU">立即上傳</button><button class="btn sec sm" id="gR">從 GitHub 還原</button><button class="btn dng sm" id="gC">清除備份設定</button></div>`:''}`);
+  $('#gX').onclick=closeModal;
+  $('#ghf').onsubmit=async e=>{
+    e.preventDefault();const f=$('#ghf').elements;
+    const n={owner:f.owner.value.trim(),repo:f.repo.value.trim(),token:f.token.value.trim()||c.token||''};
+    if(!n.owner||!n.repo||!n.token){toast('請填寫帳號、repo 與金鑰');return}
+    const b=$('#gS');b.disabled=true;
+    try{
+      gh._priv=null;await gh.assertPrivate(n);
+      gh.setCfg(n);toast('設定完成，開始上傳');closeModal();setStat('GitHub 備份已啟用');syncNow(true);
+    }catch(err){toast(gh.err(err))}
+    b.disabled=false;
+  };
+  if($('#gU'))$('#gU').onclick=()=>{closeModal();syncNow(true)};
+  if($('#gR'))$('#gR').onclick=async()=>{
+    try{
+      await gh.assertPrivate();
+      const snap=await fetchRemote();
+      if(!snap){toast('GitHub 上還沒有備份');return}
+      if(await confirmBox('會用 GitHub 上的備份取代這支手機目前的資料，確定嗎？','還原'))await restoreFromGithub(snap);
+      closeModal();
+    }catch(err){toast('還原失敗：'+gh.err(err))}
+  };
+  if($('#gC'))$('#gC').onclick=async()=>{
+    if(await confirmBox('清除後，這支手機不會再自動備份（GitHub 上已有的備份不會被刪除）。','清除')){localStorage.removeItem(GH_KEY);gh._priv=null;setStat('尚未設定備份');closeModal();toast('已清除備份設定')}
+  };
+}
+
 init();
 </script>
 </body>
